@@ -1,13 +1,20 @@
-//! Corpus test: runs the CLI against every message file in a corpus directory.
+//! Corpus test: runs the CLI against every message file in a corpus directory
+//! and reports aggregate statistics.
 //!
-//! By default the bundled `tests/data/` fixtures are used. Point `CORPUS_DIR`
-//! at your own directory to run against your files instead:
+//! The corpus directory is resolved as:
+//!   1. `$CORPUS_DIR` — a directory with your own `.eml`/`.msg` files;
+//!   2. the bundled `tests/data/` fixtures otherwise.
 //!
-//!     CORPUS_DIR=/path/to/my/emails cargo test --test corpus
+//! Every file must produce exit code 0 and a single schema-conformant JSON
+//! document on stdout. Messages whose attachments yield no text (document
+//! status `unsupported`, or per-document `error`) count as `Unsupported`:
+//! that is valid modeled output of the CLI, not a failure. All files are
+//! processed even after failures; the test fails at the end if any file did
+//! not pass validation.
 //!
-//! Every file in the directory must be a parseable RFC 822 message: the test
-//! asserts exit code 0, a single valid JSON document on stdout, and
-//! conformance to the documented output schema.
+//! Statistics are printed to stdout; run with:
+//!
+//!     cargo test -- --nocapture
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -23,9 +30,8 @@ fn corpus_dir() -> PathBuf {
     }
 }
 
-fn corpus_files() -> Vec<PathBuf> {
-    let dir = corpus_dir();
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+fn corpus_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .unwrap_or_else(|err| panic!("cannot read corpus directory {}: {err}", dir.display()))
         .filter_map(Result::ok)
         .map(|entry| entry.path())
@@ -39,108 +45,176 @@ fn corpus_files() -> Vec<PathBuf> {
     files
 }
 
+fn display_name(file: &Path) -> String {
+    file.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| file.display().to_string())
+}
+
 #[test]
 fn every_corpus_file_parses_into_valid_json() {
-    let files = corpus_files();
+    let dir = corpus_dir();
+    let files = corpus_files(&dir);
     assert!(
         !files.is_empty(),
         "no test messages found in {}; place .eml/.msg files there",
-        corpus_dir().display()
+        dir.display()
     );
 
+    let mut processed = 0usize;
+    let mut successful = 0usize;
+    let mut unsupported = 0usize;
+    let mut failures: Vec<String> = Vec::new();
+
     for file in &files {
-        let output = Command::new(BINARY)
-            .arg(file)
-            .output()
-            .unwrap_or_else(|err| panic!("cannot spawn {BINARY}: {err}"));
-
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            output.status.success(),
-            "{}: unexpected failure (exit code {:?}):\n{stderr}",
-            file.display(),
-            output.status.code()
-        );
-
-        let json: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|err| {
-            panic!(
-                "{}: stdout is not a single valid JSON document: {err}\nstderr:\n{stderr}",
-                file.display()
-            )
-        });
-
-        validate_schema(&json, file);
+        processed += 1;
+        match parse_message(file) {
+            Ok(json) => {
+                if has_documents_without_text(&json) {
+                    unsupported += 1;
+                } else {
+                    successful += 1;
+                }
+            }
+            Err(reason) => failures.push(format!("  - {}: {reason}", display_name(file))),
+        }
     }
+
+    println!("Real mail test statistics:");
+    print_stat("Files found:", files.len());
+    print_stat("Processed:", processed);
+    print_stat("Successful:", successful);
+    print_stat("Failed:", failures.len());
+    print_stat("Unsupported:", unsupported);
+
+    if !failures.is_empty() {
+        println!("Failed files:");
+        for line in &failures {
+            println!("{line}");
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "{}/{} corpus files failed validation",
+        failures.len(),
+        processed
+    );
 }
 
-fn validate_schema(json: &Value, file: &Path) {
-    let obj = json
-        .as_object()
-        .unwrap_or_else(|| panic!("{}: top level must be a JSON object", file.display()));
+fn parse_message(file: &Path) -> Result<Value, String> {
+    let output = Command::new(BINARY)
+        .arg(file)
+        .output()
+        .map_err(|err| format!("cannot spawn {BINARY}: {err}"))?;
 
-    for key in ["message_id", "subject", "sender", "date", "documents"] {
-        assert!(obj.contains_key(key), "{}: missing key `{key}`", file.display());
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "unexpected failure (exit code {:?}): {}",
+            output.status.code(),
+            stderr.trim()
+        ));
     }
 
-    check_optional_string(obj.get("message_id"), "message_id", file);
-    check_optional_string(obj.get("subject"), "subject", file);
-    check_optional_string(obj.get("sender"), "sender", file);
+    let json: Value = serde_json::from_slice(&output.stdout).map_err(|err| {
+        format!(
+            "stdout is not a single valid JSON document: {err}; stderr: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+    })?;
+
+    validate_schema(&json, &display_name(file))?;
+    Ok(json)
+}
+
+/// A message counts as `Unsupported` when at least one attachment did not
+/// yield text (`status: "unsupported"`) or failed extraction
+/// (`status: "error"`). Both are valid, gracefully reported outcomes of the
+/// CLI rather than processing failures.
+fn has_documents_without_text(json: &Value) -> bool {
+    json["documents"].as_array().is_some_and(|documents| {
+        documents
+            .iter()
+            .any(|doc| doc.get("status").and_then(Value::as_str) != Some("ok"))
+    })
+}
+
+fn print_stat(label: &str, value: usize) {
+    println!("  {label:<16}{value:>4}");
+}
+
+fn validate_schema(json: &Value, name: &str) -> Result<(), String> {
+    let obj = json
+        .as_object()
+        .ok_or_else(|| format!("{name}: top level must be a JSON object"))?;
+
+    for key in ["message_id", "subject", "sender", "date", "documents"] {
+        if !obj.contains_key(key) {
+            return Err(format!("{name}: missing key `{key}`"));
+        }
+    }
+
+    check_optional_string(obj.get("message_id"), "message_id", name)?;
+    check_optional_string(obj.get("subject"), "subject", name)?;
+    check_optional_string(obj.get("sender"), "sender", name)?;
 
     if let Some(id) = obj.get("message_id").filter(|id| !id.is_null()) {
-        let s = id.as_str().expect("message_id must be a string");
-        assert!(
-            s.starts_with('<') && s.ends_with('>'),
-            "{}: message_id `{s}` must look like `<...>`",
-            file.display()
-        );
+        let s = id
+            .as_str()
+            .ok_or_else(|| format!("{name}: message_id must be a string"))?;
+        if !(s.starts_with('<') && s.ends_with('>')) {
+            return Err(format!("{name}: message_id `{s}` must look like `<...>`"));
+        }
     }
 
     if let Some(date) = obj.get("date").filter(|date| !date.is_null()) {
-        let s = date.as_str().expect("date must be a string");
-        assert!(
-            is_iso8601_utc(s),
-            "{}: date `{s}` is not normalized ISO 8601 UTC",
-            file.display()
-        );
+        let s = date
+            .as_str()
+            .ok_or_else(|| format!("{name}: date must be a string"))?;
+        if !is_iso8601_utc(s) {
+            return Err(format!("{name}: date `{s}` is not normalized ISO 8601 UTC"));
+        }
     }
 
     let documents = obj["documents"]
         .as_array()
-        .unwrap_or_else(|| panic!("{}: `documents` must be an array", file.display()));
+        .ok_or_else(|| format!("{name}: `documents` must be an array"))?;
 
     for (index, doc) in documents.iter().enumerate() {
-        validate_document(doc, index, file);
+        validate_document(doc, index, name)?;
     }
+
+    Ok(())
 }
 
-fn validate_document(doc: &Value, index: usize, file: &Path) {
-    let context = format!("{}: documents[{index}]", file.display());
+fn validate_document(doc: &Value, index: usize, name: &str) -> Result<(), String> {
+    let context = format!("{name}: documents[{index}]");
     let doc = doc
         .as_object()
-        .unwrap_or_else(|| panic!("{context}: must be an object"));
+        .ok_or_else(|| format!("{context}: must be an object"))?;
 
     if let Some(filename) = doc.get("filename") {
-        assert!(
-            filename.is_null() || filename.is_string(),
-            "{context}: `filename` must be null or a string"
-        );
+        if !(filename.is_null() || filename.is_string()) {
+            return Err(format!("{context}: `filename` must be null or a string"));
+        }
     }
 
-    match doc
+    let status = doc
         .get("status")
         .and_then(Value::as_str)
-        .unwrap_or_else(|| panic!("{context}: missing `status`"))
-    {
+        .ok_or_else(|| format!("{context}: missing `status`"))?;
+
+    match status {
         "ok" => {
             let paragraphs = doc
                 .get("paragraphs")
                 .and_then(Value::as_array)
-                .unwrap_or_else(|| panic!("{context} (ok): must contain `paragraphs` array"));
+                .ok_or_else(|| format!("{context} (ok): must contain `paragraphs` array"))?;
             for paragraph in paragraphs {
-                assert!(
-                    paragraph.is_string(),
-                    "{context}: paragraphs must contain only strings"
-                );
+                if !paragraph.is_string() {
+                    return Err(format!("{context}: paragraphs must contain only strings"));
+                }
             }
         }
         "unsupported" => {}
@@ -148,29 +222,31 @@ fn validate_document(doc: &Value, index: usize, file: &Path) {
             let error = doc
                 .get("error")
                 .and_then(Value::as_object)
-                .unwrap_or_else(|| panic!("{context} (error): must contain `error` object"));
-            assert!(
-                error.contains_key("code"),
-                "{context} (error): missing `error.code`"
-            );
+                .ok_or_else(|| format!("{context} (error): must contain `error` object"))?;
+            if !error.contains_key("code") {
+                return Err(format!("{context} (error): missing `error.code`"));
+            }
             let message = error
                 .get("message")
                 .and_then(Value::as_str)
-                .unwrap_or_else(|| panic!("{context} (error): missing `error.message`"));
-            assert!(!message.is_empty(), "{context} (error): empty `error.message`");
+                .ok_or_else(|| format!("{context} (error): missing `error.message`"))?;
+            if message.is_empty() {
+                return Err(format!("{context} (error): empty `error.message`"));
+            }
         }
-        other => panic!("{context}: unknown status `{other}`"),
+        other => return Err(format!("{context}: unknown status `{other}`")),
     }
+
+    Ok(())
 }
 
-fn check_optional_string(value: Option<&Value>, key: &str, file: &Path) {
+fn check_optional_string(value: Option<&Value>, key: &str, name: &str) -> Result<(), String> {
     if let Some(value) = value {
-        assert!(
-            value.is_null() || value.is_string(),
-            "{}: `{key}` must be null or a string",
-            file.display()
-        );
+        if !(value.is_null() || value.is_string()) {
+            return Err(format!("{name}: `{key}` must be null or a string"));
+        }
     }
+    Ok(())
 }
 
 /// `YYYY-MM-DDTHH:MM:SSZ`
