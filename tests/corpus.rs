@@ -10,13 +10,16 @@
 //! status `unsupported`, or per-document `error`) count as `Unsupported`:
 //! that is valid modeled output of the CLI, not a failure. All files are
 //! processed even after failures; the test fails at the end if any file did
-//! not pass validation.
+//! not pass validation, and every failing file is listed with its full path.
 //!
-//! Statistics are printed to stdout; run with:
-//!
-//!     cargo test -- --nocapture
+//! Statistics are written directly to stderr on every run — no `--nocapture`
+//! needed.
 
 use serde_json::Value;
+use std::fs::File;
+use std::io::Write as _;
+use std::mem::ManuallyDrop;
+use std::os::unix::io::FromRawFd;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -24,10 +27,11 @@ const BINARY: &str = env!("CARGO_BIN_EXE_tavda-mail-parser");
 const DATA_DIR: &str = "tests/data";
 
 fn corpus_dir() -> PathBuf {
-    match std::env::var("CORPUS_DIR") {
+    let dir = match std::env::var("CORPUS_DIR") {
         Ok(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => Path::new(env!("CARGO_MANIFEST_DIR")).join(DATA_DIR),
-    }
+    };
+    dir.canonicalize().unwrap_or(dir)
 }
 
 fn corpus_files(dir: &Path) -> Vec<PathBuf> {
@@ -76,11 +80,11 @@ fn every_corpus_file_parses_into_valid_json() {
                     successful += 1;
                 }
             }
-            Err(reason) => failures.push(format!("  - {}: {reason}", display_name(file))),
+            Err(reason) => failures.push(format!("  - {}: {reason}", file.display())),
         }
     }
 
-    println!("Real mail test statistics:");
+    print_line("Real mail test statistics:");
     print_stat("Files found:", files.len());
     print_stat("Processed:", processed);
     print_stat("Successful:", successful);
@@ -88,9 +92,9 @@ fn every_corpus_file_parses_into_valid_json() {
     print_stat("Unsupported:", unsupported);
 
     if !failures.is_empty() {
-        println!("Failed files:");
+        print_line("Failed files:");
         for line in &failures {
-            println!("{line}");
+            print_line(line);
         }
     }
 
@@ -140,8 +144,18 @@ fn has_documents_without_text(json: &Value) -> bool {
     })
 }
 
+/// The libtest harness captures both stdout and stderr of a passing test and
+/// discards them unless `--nocapture` is passed. Writing straight to file
+/// descriptor 2 bypasses that capture, so the report is always visible.
+fn print_line(text: &str) {
+    // SAFETY: fd 2 (stderr) stays open for the whole process lifetime, and the
+    // `ManuallyDrop` wrapper makes sure this handle never closes it.
+    let mut stderr = ManuallyDrop::new(unsafe { File::from_raw_fd(2) });
+    let _ = writeln!(stderr, "{text}");
+}
+
 fn print_stat(label: &str, value: usize) {
-    println!("  {label:<16}{value:>4}");
+    print_line(&format!("  {label:<16}{value:>4}"));
 }
 
 fn validate_schema(json: &Value, name: &str) -> Result<(), String> {
