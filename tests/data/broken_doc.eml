@@ -1,0 +1,21 @@
+Message-ID: <broken-004@example.com>
+From: office@example.com
+Subject: Broken doc
+Date: Tue, 11 Aug 2026 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="B3"
+
+--B3
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Contains a broken document.
+--B3
+Content-Type: application/msword; name="broken.doc"
+Content-Disposition: attachment; filename="broken.doc"
+Content-Transfer-Encoding: base64
+
+0M8R4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAA=
+--B3--

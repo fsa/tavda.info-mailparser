@@ -1,0 +1,36 @@
+Message-ID: <multi-003@example.com>
+From: office@example.com
+Subject: Multiple attachments
+Date: Mon, 10 Aug 2026 09:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="B2"
+
+--B2
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+Three attachments.
+--B2
+Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document; name="letter.docx"
+Content-Disposition: attachment; filename="letter.docx"
+Content-Transfer-Encoding: base64
+
+UEsDBBQAAAAIANq+FV3mlFNeywAAABgBAAARAAAAd29yZC9kb2N1bWVudC54bWyFjzFOxDAURK9i
+uScOW6xQlGQ7TgAH8MYmG8n+3/L3kmy3oqCh4wJcYUFCiGbP8H0jZCREQUHzphjNjKbdLN6Jextp
+QujkZVVLYWFAM8HYydub64srKShpMNoh2E4eLMlN386NwWHvLSSxeAfUzJ3cpRQapWjYWa+pwmBh
+8e4Oo9eJKoyjmjGaEHGwRBOM3qlVXa+V1xPIUrlFcygaCmJB6vmF3/OR3/ITfwo+8St/8Ck/tqqY
+hfGb4U/uOT/wOR/5/F9O/Qyr31P9F1BLAQIUAxQAAAAIANq+FV3mlFNeywAAABgBAAARAAAAAAAA
+AAAAAACAAQAAAAB3b3JkL2RvY3VtZW50LnhtbFBLBQYAAAAAAQABAD8AAAD6AAAAAAA=
+--B2
+Content-Type: text/plain; name="notes.txt"
+Content-Disposition: attachment; filename="notes.txt"
+Content-Transfer-Encoding: base64
+
+dGV4dCBub3Rlcw==
+--B2
+Content-Type: application/octet-stream; name="unknown.xyz"
+Content-Disposition: attachment; filename="unknown.xyz"
+Content-Transfer-Encoding: base64
+
+AAECAwQFBgcICQoLDA0ODw==
+--B2--

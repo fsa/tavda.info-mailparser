@@ -1,0 +1,18 @@
+[package]
+name = "tavda-mail-parser"
+version = "0.1.0"
+edition = "2024"
+description = "Parse a single email from stdin or a file and emit normalized JSON with message metadata and extracted document text"
+
+[dependencies]
+cfb = "0.12"
+clap = { version = "4", features = ["derive"] }
+mail-parser = { version = "0.11", features = ["full_encoding"] }
+quick-xml = "0.38"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+zip = { version = "6", default-features = false, features = ["deflate"] }
+
+[profile.release]
+lto = true

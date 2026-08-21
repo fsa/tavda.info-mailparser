@@ -1,0 +1,26 @@
+Message-ID: <utf8-002@example.com>
+From: sender@example.com
+To: recipient@example.com
+Subject: =?utf-8?B?0J4g0L3QsNC/0YDQsNCy0LvQtdC90LjQuCDQtNC+0LrRg9C80LXQvdGC0L7Qsg==?=
+Date: Fri, 21 Aug 2026 19:30:00 +0300
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="B1"
+
+--B1
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+См. вложение.
+--B1
+Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document; name="=?utf-8?B?0L/QuNGB0YzQvNC+LmRvY3g=?="
+Content-Disposition: attachment; filename="=?utf-8?B?0L/QuNGB0YzQvNC+LmRvY3g=?="
+Content-Transfer-Encoding: base64
+
+UEsDBBQAAAAIANq+FV3T2wkM+wAAAHIBAAARAAAAd29yZC9kb2N1bWVudC54bWyFkDFOwzAUhq9i
+PENcGBCKknTjBHCAkJg0UmxHtiHphujYgRMwIC4QFYKqJi1X+H2jyhWIASSW7y3vffr/F01bUZF7
+rk2pZExPgwklXGYqL2UR0+ury5MLSoxNZZ5WSvKYzrmh0yRqwlxld4JLS1pRSRM2MZ1ZW4eMmWzG
+RWoCVXPZiupWaZFaEyhdsEbpvNYq48aUshAVO5tMzplIS0m98kblcz9rD+1hE7xihQ4f6NBjdEv0
+BBvsMGBAjzesjyLm9zz1gfUvxTM6fLoHdFhhcE9eRA7WkeAdO2zcAiN6bN2jWwb/+16IW3yl6rHF
+2guP/zhj35XYz7uSPVBLAQIUAxQAAAAIANq+FV3T2wkM+wAAAHIBAAARAAAAAAAAAAAAAACAAQAA
+AAB3b3JkL2RvY3VtZW50LnhtbFBLBQYAAAAAAQABAD8AAAAqAQAAAAA=
+--B1--

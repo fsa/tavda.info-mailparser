@@ -1,0 +1,9 @@
+Message-ID: <simple-001@example.com>
+From: Alice <alice@example.com>
+To: bob@example.com
+Subject: Test message
+Date: Thu, 01 Jan 2026 12:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Plain body without attachments.
