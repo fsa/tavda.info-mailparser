@@ -1,9 +1,13 @@
-//! Corpus test: runs the CLI against every message file in `tests/data/`.
+//! Corpus test: runs the CLI against every message file in a corpus directory.
 //!
-//! Drop any `.eml` / `.msg` files into `tests/data/` — they are picked up
-//! automatically on the next `cargo test` run. Every file must be a parseable
-//! RFC 822 message: the test asserts exit code 0, a single valid JSON document
-//! on stdout, and conformance to the documented output schema.
+//! By default the bundled `tests/data/` fixtures are used. Point `CORPUS_DIR`
+//! at your own directory to run against your files instead:
+//!
+//!     CORPUS_DIR=/path/to/my/emails cargo test --test corpus
+//!
+//! Every file in the directory must be a parseable RFC 822 message: the test
+//! asserts exit code 0, a single valid JSON document on stdout, and
+//! conformance to the documented output schema.
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -12,10 +16,17 @@ use std::process::Command;
 const BINARY: &str = env!("CARGO_BIN_EXE_tavda-mail-parser");
 const DATA_DIR: &str = "tests/data";
 
+fn corpus_dir() -> PathBuf {
+    match std::env::var("CORPUS_DIR") {
+        Ok(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => Path::new(env!("CARGO_MANIFEST_DIR")).join(DATA_DIR),
+    }
+}
+
 fn corpus_files() -> Vec<PathBuf> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(DATA_DIR);
+    let dir = corpus_dir();
     let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .unwrap_or_else(|err| panic!("{DATA_DIR} directory must exist: {err}"))
+        .unwrap_or_else(|err| panic!("cannot read corpus directory {}: {err}", dir.display()))
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| path.is_file())
@@ -33,7 +44,8 @@ fn every_corpus_file_parses_into_valid_json() {
     let files = corpus_files();
     assert!(
         !files.is_empty(),
-        "no test messages found in {DATA_DIR}; place .eml/.msg files there"
+        "no test messages found in {}; place .eml/.msg files there",
+        corpus_dir().display()
     );
 
     for file in &files {
