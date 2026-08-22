@@ -12,9 +12,14 @@ pub enum OutputError {
 
 /// Writes the single JSON document to stdout.
 ///
+/// Compact by default; `pretty` switches to 2-space indentation.
 /// Diagnostics never go here: stdout must stay machine-parseable.
-pub fn write_json(email: &Email) -> Result<(), OutputError> {
-    let json = to_pretty_json(email)?;
+pub fn write_json(email: &Email, pretty: bool) -> Result<(), OutputError> {
+    let json = if pretty {
+        to_pretty_json(email)?
+    } else {
+        to_compact_json(email)?
+    };
     let mut lock = io::stdout().lock();
     lock.write_all(json.as_bytes())?;
     lock.write_all(b"\n")?;
@@ -24,6 +29,10 @@ pub fn write_json(email: &Email) -> Result<(), OutputError> {
 
 pub(crate) fn to_pretty_json(email: &Email) -> Result<String, OutputError> {
     Ok(serde_json::to_string_pretty(email)?)
+}
+
+pub(crate) fn to_compact_json(email: &Email) -> Result<String, OutputError> {
+    Ok(serde_json::to_string(email)?)
 }
 
 #[cfg(test)]
@@ -65,6 +74,15 @@ mod tests {
     #[test]
     fn output_is_valid_json() {
         let json = to_pretty_json(&sample_email()).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["documents"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn compact_json_has_no_padding() {
+        let json = to_compact_json(&sample_email()).unwrap();
+        assert!(!json.contains(": "));
+        assert!(!json.contains('\n'));
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["documents"].as_array().unwrap().len(), 2);
     }

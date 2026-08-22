@@ -129,6 +129,35 @@ fn msg_extension_is_parsed_like_eml() {
 }
 
 #[test]
+fn default_output_is_compact_single_line_json() {
+    let output = Command::new(BINARY)
+        .arg(data_file("simple.eml"))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.lines().count(), 1, "compact JSON must be one line");
+    assert!(!stdout.contains(": "), "no padding after colons: {stdout}");
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["message_id"], "<simple-001@example.com>");
+}
+
+#[test]
+fn pretty_flag_indents_json() {
+    let output = Command::new(BINARY)
+        .arg("--pretty")
+        .arg(data_file("simple.eml"))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.lines().count() > 1, "pretty JSON must span lines");
+    assert!(stdout.contains(": "));
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["message_id"], "<simple-001@example.com>");
+}
+
+#[test]
 fn version_flag_prints_name_and_version() {
     let output = Command::new(BINARY).arg("--version").output().unwrap();
     assert!(output.status.success());

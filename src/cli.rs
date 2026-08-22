@@ -13,6 +13,10 @@ pub struct Cli {
     /// Path to the raw message file (.eml). Use '-' or omit to read from stdin.
     #[arg(value_name = "FILE")]
     pub file: Option<PathBuf>,
+
+    /// Pretty-print the JSON document with 2-space indentation instead of the default compact form.
+    #[arg(long)]
+    pub pretty: bool,
 }
 
 impl Cli {
@@ -60,6 +64,7 @@ mod tests {
         let path = temp_message(b"Subject: t\r\n\r\nbody");
         let cli = Cli {
             file: Some(path.clone()),
+            pretty: false,
         };
         assert_eq!(cli.read_input().unwrap(), b"Subject: t\r\n\r\nbody");
         std::fs::remove_file(&path).unwrap();
@@ -69,6 +74,7 @@ mod tests {
     fn missing_file_error_mentions_path() {
         let cli = Cli {
             file: Some(PathBuf::from("/definitely/not/here.eml")),
+            pretty: false,
         };
         match cli.read_input() {
             Err(AppError::InputOpen { path, .. }) => assert_eq!(path, "/definitely/not/here.eml"),

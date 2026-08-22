@@ -28,7 +28,7 @@ fn run(cli: &Cli) -> Result<(), AppError> {
     let parsed = email::parser::parse(RawMessage::new(&raw))?;
     let documents = document::process_attachments(parsed.attachments());
     let message = parsed.into_email(documents);
-    output::write_json(&message)?;
+    output::write_json(&message, cli.pretty)?;
     Ok(())
 }
 
