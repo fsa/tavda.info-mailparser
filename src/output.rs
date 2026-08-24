@@ -39,22 +39,34 @@ pub(crate) fn to_compact_json(email: &Email) -> Result<String, OutputError> {
 mod tests {
     use super::*;
     use crate::document::{Document, ExtractedDocument};
-    use crate::email::{EmailMetadata, IsoDateTime, MessageId, Sender, Subject};
+    use crate::email::{EmailMetadata, IsoDateTime, MessageId, Recipient, Sender, Subject};
 
     fn sample_email() -> Email {
         let metadata = EmailMetadata {
             message_id: Some(MessageId("<x@y>".into())),
             subject: Some(Subject("Тема письма".into())),
             sender: Some(Sender("s@y".into())),
+            to: Some(Recipient("robot@y".into())),
             date: Some(IsoDateTime("2026-08-21T16:30:00Z".into())),
         };
         let documents = vec![
             Document::Ok {
                 filename: Some("a.docx".into()),
+                content_type: Some(
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        .into(),
+                ),
+                detected_content_type: Some(
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        .into(),
+                ),
                 paragraphs: ExtractedDocument::new(vec!["Один".into(), "Два".into()])
                     .into_paragraphs(),
             },
-            Document::Unsupported { filename: None },
+            Document::Unsupported {
+                filename: None,
+                content_type: None,
+            },
         ];
         Email::new(metadata, documents)
     }

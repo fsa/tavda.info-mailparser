@@ -38,19 +38,30 @@ impl ExtractedDocument {
 /// Processing result for one attachment.
 ///
 /// The `status` tag mirrors the three possible outcomes: successful text
-/// extraction, unsupported format, or a per-document error.
+/// extraction, unsupported format, or a per-document error. `content_type`
+/// carries the MIME type declared in the message headers (`null` when the
+/// part had none); `detected_content_type` is the canonical MIME type of the
+/// format actually used for decoding, so it diverges from `content_type`
+/// whenever detection relied on extension or content sniffing. It is present
+/// only when a decoder was picked (`ok`/`error`); nothing was decoded for
+/// `unsupported`.
 #[derive(Debug, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum Document {
     Ok {
         filename: Option<String>,
+        content_type: Option<String>,
+        detected_content_type: Option<String>,
         paragraphs: Vec<Paragraph>,
     },
     Unsupported {
         filename: Option<String>,
+        content_type: Option<String>,
     },
     Error {
         filename: Option<String>,
+        content_type: Option<String>,
+        detected_content_type: Option<String>,
         error: DocumentErrorInfo,
     },
 }
@@ -62,26 +73,38 @@ pub fn process_attachments(attachments: &[Attachment]) -> Vec<Document> {
 
 fn process_attachment(attachment: &Attachment) -> Document {
     let filename = attachment.filename().map(|name| name.as_str().to_string());
+    let content_type = attachment.content_type().map(|ct| ct.as_str().to_string());
 
     let Some(format) = detector::detect(attachment) else {
         warn(&filename, "unsupported format");
-        return Document::Unsupported { filename };
+        return Document::Unsupported {
+            filename,
+            content_type,
+        };
     };
 
     let Some(extractor) = extractor::extractor_for(format) else {
         warn(&filename, "no extractor registered");
-        return Document::Unsupported { filename };
+        return Document::Unsupported {
+            filename,
+            content_type,
+        };
     };
+    let detected_content_type = format.mime_type().to_string();
 
     match extractor.extract(attachment) {
         Ok(document) => Document::Ok {
             filename,
+            content_type,
+            detected_content_type: Some(detected_content_type),
             paragraphs: document.into_paragraphs(),
         },
         Err(err) => {
             warn(&filename, &err.to_string());
             Document::Error {
                 filename,
+                content_type,
+                detected_content_type: Some(detected_content_type),
                 error: (&err).into(),
             }
         }
@@ -104,6 +127,14 @@ pub(crate) mod testutil {
         Attachment::new(
             Some(FileName(name.to_string())),
             None,
+            AttachmentContents::new(contents.to_vec()),
+        )
+    }
+
+    pub(crate) fn attachment_with_mime(name: &str, mime: &str, contents: &[u8]) -> Attachment {
+        Attachment::new(
+            Some(FileName(name.to_string())),
+            Some(crate::email::MimeType(mime.to_string())),
             AttachmentContents::new(contents.to_vec()),
         )
     }
@@ -159,9 +190,13 @@ mod tests {
     #[test]
     fn json_shapes_match_spec() {
         let attachments = vec![
-            testutil::attachment("letter.docx", &testutil::docx(&["Один", "Два"])),
+            testutil::attachment_with_mime(
+                "letter.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                &testutil::docx(&["Один", "Два"]),
+            ),
             testutil::attachment("unknown.xyz", b"???"),
-            testutil::attachment("broken.doc", &[0xD0, 0xCF, 0x11, 0xE0]),
+            testutil::attachment_with_mime("broken.doc", "application/msword", &[0xD0, 0xCF, 0x11, 0xE0]),
         ];
         let documents = process_attachments(&attachments);
 
@@ -171,6 +206,8 @@ mod tests {
             json!({
                 "status": "ok",
                 "filename": "letter.docx",
+                "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "detected_content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 "paragraphs": ["Один", "Два"],
             })
         );
@@ -178,13 +215,39 @@ mod tests {
         let unsupported = serde_json::to_value(&documents[1]).unwrap();
         assert_eq!(
             unsupported,
-            json!({ "status": "unsupported", "filename": "unknown.xyz" })
+            json!({
+                "status": "unsupported",
+                "filename": "unknown.xyz",
+                "content_type": null,
+            })
         );
+        assert!(unsupported.get("detected_content_type").is_none());
 
         let error = serde_json::to_value(&documents[2]).unwrap();
         assert_eq!(error["status"], "error");
         assert_eq!(error["filename"], "broken.doc");
+        assert_eq!(error["content_type"], "application/msword");
+        assert_eq!(error["detected_content_type"], "application/msword");
         assert_eq!(error["error"]["code"], "corrupt_document");
         assert!(!error["error"]["message"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn detected_type_reflects_actual_decoder_not_declared_header() {
+        // Declared octet-stream but detected as DOCX by extension: the
+        // declared header value must be preserved verbatim, and the type of
+        // the decoder actually used must be reported alongside it.
+        let attachments = vec![testutil::attachment_with_mime(
+            "letter.docx",
+            "application/octet-stream",
+            &testutil::docx(&["Текст"]),
+        )];
+        let ok = serde_json::to_value(&process_attachments(&attachments)[0]).unwrap();
+        assert_eq!(ok["content_type"], "application/octet-stream");
+        assert_eq!(ok["status"], "ok");
+        assert_eq!(
+            ok["detected_content_type"],
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        );
     }
 }

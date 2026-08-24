@@ -163,7 +163,7 @@ fn validate_schema(json: &Value, name: &str) -> Result<(), String> {
         .as_object()
         .ok_or_else(|| format!("{name}: top level must be a JSON object"))?;
 
-    for key in ["message_id", "subject", "sender", "date", "documents"] {
+    for key in ["message_id", "subject", "sender", "to", "date", "documents"] {
         if !obj.contains_key(key) {
             return Err(format!("{name}: missing key `{key}`"));
         }
@@ -172,6 +172,7 @@ fn validate_schema(json: &Value, name: &str) -> Result<(), String> {
     check_optional_string(obj.get("message_id"), "message_id", name)?;
     check_optional_string(obj.get("subject"), "subject", name)?;
     check_optional_string(obj.get("sender"), "sender", name)?;
+    check_optional_string(obj.get("to"), "to", name)?;
 
     if let Some(id) = obj.get("message_id").filter(|id| !id.is_null()) {
         let s = id
@@ -211,6 +212,18 @@ fn validate_document(doc: &Value, index: usize, name: &str) -> Result<(), String
     if let Some(filename) = doc.get("filename") {
         if !(filename.is_null() || filename.is_string()) {
             return Err(format!("{context}: `filename` must be null or a string"));
+        }
+    }
+
+    if let Some(content_type) = doc.get("content_type") {
+        if !(content_type.is_null() || content_type.is_string()) {
+            return Err(format!("{context}: `content_type` must be null or a string"));
+        }
+    }
+
+    if let Some(detected) = doc.get("detected_content_type") {
+        if !(detected.is_null() || detected.is_string()) {
+            return Err(format!("{context}: `detected_content_type` must be null or a string"));
         }
     }
 

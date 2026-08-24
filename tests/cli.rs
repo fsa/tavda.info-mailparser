@@ -63,6 +63,7 @@ fn decodes_utf8_headers_and_docx_from_file_argument() {
     assert_eq!(json["message_id"], "<utf8-002@example.com>");
     assert_eq!(json["subject"], "О направлении документов");
     assert_eq!(json["sender"], "sender@example.com");
+    assert_eq!(json["to"], "recipient@example.com");
     assert_eq!(json["date"], "2026-08-21T16:30:00Z");
 
     let documents = json["documents"].as_array().unwrap();
@@ -70,6 +71,14 @@ fn decodes_utf8_headers_and_docx_from_file_argument() {
     assert_eq!(documents[0]["status"], "ok");
     // RFC 2047-encoded attachment name is decoded
     assert_eq!(documents[0]["filename"], "письмо.docx");
+    assert_eq!(
+        documents[0]["content_type"],
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+    assert_eq!(
+        documents[0]["detected_content_type"],
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
     assert_eq!(
         documents[0]["paragraphs"],
         serde_json::json!([
@@ -90,16 +99,28 @@ fn multi_attachment_message_reports_each_document() {
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let documents = json["documents"].as_array().unwrap();
+    // fixture has no To header
+    assert!(json["to"].is_null());
     assert_eq!(documents.len(), 3);
     assert_eq!(documents[0]["status"], "ok");
+    assert_eq!(
+        documents[0]["content_type"],
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+    assert_eq!(
+        documents[0]["detected_content_type"],
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
     assert_eq!(
         documents[0]["paragraphs"],
         serde_json::json!(["Первый абзац", "Второй абзац"])
     );
     assert_eq!(documents[1]["status"], "unsupported");
     assert_eq!(documents[1]["filename"], "notes.txt");
+    assert_eq!(documents[1]["content_type"], "text/plain");
     assert_eq!(documents[2]["status"], "unsupported");
     assert_eq!(documents[2]["filename"], "unknown.xyz");
+    assert_eq!(documents[2]["content_type"], "application/octet-stream");
 }
 
 #[test]
@@ -114,6 +135,8 @@ fn broken_document_does_not_fail_the_whole_message() {
     let doc = &json["documents"][0];
     assert_eq!(doc["status"], "error");
     assert_eq!(doc["filename"], "broken.doc");
+    assert_eq!(doc["content_type"], "application/msword");
+    assert_eq!(doc["detected_content_type"], "application/msword");
     assert_eq!(doc["error"]["code"], "corrupt_document");
 }
 

@@ -34,6 +34,12 @@ pub struct Subject(pub String);
 #[serde(transparent)]
 pub struct Sender(pub String);
 
+/// Primary recipient address from the `To` header (first entry; the display
+/// name is used only when the bare address is missing).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct Recipient(pub String);
+
 /// Message date normalized to UTC ISO 8601 (`2026-08-21T16:30:00Z`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
@@ -130,6 +136,7 @@ pub struct EmailMetadata {
     pub message_id: Option<MessageId>,
     pub subject: Option<Subject>,
     pub sender: Option<Sender>,
+    pub to: Option<Recipient>,
     pub date: Option<IsoDateTime>,
 }
 
@@ -166,6 +173,7 @@ pub struct Email {
     message_id: Option<MessageId>,
     subject: Option<Subject>,
     sender: Option<Sender>,
+    to: Option<Recipient>,
     date: Option<IsoDateTime>,
     documents: Vec<crate::document::Document>,
 }
@@ -176,6 +184,7 @@ impl Email {
             message_id: metadata.message_id,
             subject: metadata.subject,
             sender: metadata.sender,
+            to: metadata.to,
             date: metadata.date,
             documents,
         }

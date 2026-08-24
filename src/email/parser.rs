@@ -2,7 +2,7 @@ use mail_parser::{Address, Addr, DateTime, MessageParser, MimeHeaders};
 
 use super::{
     Attachment, AttachmentContents, EmailError, EmailMetadata, FileName, IsoDateTime, MessageId,
-    MimeType, ParsedEmail, RawMessage, Sender, Subject,
+    MimeType, ParsedEmail, RawMessage, Recipient, Sender, Subject,
 };
 
 /// Parses raw message bytes into metadata and attachments.
@@ -22,6 +22,7 @@ pub fn parse(raw: RawMessage<'_>) -> Result<ParsedEmail, EmailError> {
             .map(|id| MessageId(normalize_message_id(id))),
         subject: message.subject().map(|s| Subject(s.to_string())),
         sender: sender(&message),
+        to: recipient(&message),
         date: message.date().and_then(normalize_date),
     };
 
@@ -49,21 +50,32 @@ fn normalize_message_id(id: &str) -> String {
 }
 
 fn sender(message: &mail_parser::Message<'_>) -> Option<Sender> {
-    let addresses = match message.from()? {
+    first_field_address(message.from()).map(Sender)
+}
+
+/// Primary recipient: the first address of the `To` header.
+fn recipient(message: &mail_parser::Message<'_>) -> Option<Recipient> {
+    first_field_address(message.to()).map(Recipient)
+}
+
+/// First address of a header field: the bare address if present, otherwise
+/// the display name. Group syntax (`Undisclosed recipients:;) is flattened.
+fn first_field_address(field: Option<&Address<'_>>) -> Option<String> {
+    let addresses = match field? {
         Address::List(list) => list.iter().collect::<Vec<_>>(),
         Address::Group(groups) => groups
             .iter()
             .flat_map(|group| group.addresses.iter())
-            .collect::<Vec<_>>(),
+            .collect(),
     };
     addresses.into_iter().find_map(first_address)
 }
 
-fn first_address(addr: &Addr<'_>) -> Option<Sender> {
+fn first_address(addr: &Addr<'_>) -> Option<String> {
     addr.address
         .as_deref()
-        .map(|a| Sender(a.to_string()))
-        .or_else(|| addr.name.as_deref().map(|n| Sender(n.to_string())))
+        .map(str::to_string)
+        .or_else(|| addr.name.as_deref().map(str::to_string))
 }
 
 fn content_type(ct: Option<&mail_parser::ContentType<'_>>) -> Option<MimeType> {
@@ -122,6 +134,7 @@ mod tests {
         let parsed = parse_str(
             "Message-ID: <simple@example.com>\r\n\
              From: Alice <alice@example.com>\r\n\
+             To: Bob <bob@example.com>\r\n\
              Subject: Hello\r\n\
              Date: Thu, 01 Jan 2026 12:00:00 +0000\r\n\
              \r\n\
@@ -132,7 +145,14 @@ mod tests {
         assert_eq!(metadata.message_id.as_ref().unwrap().0, "<simple@example.com>");
         assert_eq!(metadata.subject.as_ref().unwrap().0, "Hello");
         assert_eq!(metadata.sender.as_ref().unwrap().0, "alice@example.com");
+        assert_eq!(metadata.to.as_ref().unwrap().0, "bob@example.com");
         assert_eq!(metadata.date.as_ref().unwrap().0, "2026-01-01T12:00:00Z");
+    }
+
+    #[test]
+    fn picks_first_recipient_of_multi_address_to_header() {
+        let parsed = parse_str("To: bob@example.com, Carol <carol@example.com>\r\n\r\n").unwrap();
+        assert_eq!(parsed.metadata.to.as_ref().unwrap().0, "bob@example.com");
     }
 
     #[test]
@@ -175,6 +195,7 @@ mod tests {
         let parsed = parse_str("Subject: only subject\r\n\r\n").unwrap();
         assert!(parsed.metadata.message_id.is_none());
         assert!(parsed.metadata.sender.is_none());
+        assert!(parsed.metadata.to.is_none());
         assert!(parsed.metadata.date.is_none());
     }
 
