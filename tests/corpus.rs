@@ -163,7 +163,7 @@ fn validate_schema(json: &Value, name: &str) -> Result<(), String> {
         .as_object()
         .ok_or_else(|| format!("{name}: top level must be a JSON object"))?;
 
-    for key in ["message_id", "subject", "sender", "to", "date", "documents"] {
+    for key in ["message_id", "subject", "sender", "to", "date", "body", "documents"] {
         if !obj.contains_key(key) {
             return Err(format!("{name}: missing key `{key}`"));
         }
@@ -173,6 +173,7 @@ fn validate_schema(json: &Value, name: &str) -> Result<(), String> {
     check_optional_string(obj.get("subject"), "subject", name)?;
     check_optional_string(obj.get("sender"), "sender", name)?;
     check_optional_string(obj.get("to"), "to", name)?;
+    check_optional_string(obj.get("body"), "body", name)?;
 
     if let Some(id) = obj.get("message_id").filter(|id| !id.is_null()) {
         let s = id

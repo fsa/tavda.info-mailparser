@@ -6,7 +6,10 @@ use clap::Parser;
 
 /// Parse one email message and print normalized JSON (metadata + document text) to stdout.
 ///
-/// Diagnostics are printed to stderr; stdout always contains a single JSON document.
+/// Diagnostics are printed to stderr; stdout always contains a single JSON
+/// document. With `--log-dir` the result goes to a file there; `--log-errors`
+/// additionally records diagnostics in a `.log` file, and `--quiet` suppresses
+/// diagnostic output on stderr.
 #[derive(Debug, Parser)]
 #[command(name = "tavda-mail-parser", version, long_about = None)]
 pub struct Cli {
@@ -17,6 +20,26 @@ pub struct Cli {
     /// Pretty-print the JSON document with 2-space indentation instead of the default compact form.
     #[arg(long)]
     pub pretty: bool,
+
+    /// Save the JSON result to `DIR/<base>-<pid>.json`.
+    ///
+    /// The base name is derived from the message Message-ID (characters
+    /// outside `[A-Za-z0-9._-]` replaced with `_`, angle brackets stripped);
+    /// messages without a Message-ID use a `YYYYMMDD-HHMMSS` timestamp.
+    #[arg(long, value_name = "DIR")]
+    pub log_dir: Option<PathBuf>,
+
+    /// Additionally record diagnostics in `DIR/<base>-<pid>.log` (with
+    /// `--log-dir`). The terminal output is kept; combine with `--quiet` to
+    /// write the log only. The `.log` file is written only when diagnostics
+    /// were produced.
+    #[arg(long, requires = "log_dir")]
+    pub log_errors: bool,
+
+    /// Suppress diagnostics on stderr. With `--log-errors --log-dir` the
+    /// diagnostics still reach the `.log` file; otherwise they are discarded.
+    #[arg(long)]
+    pub quiet: bool,
 }
 
 impl Cli {
@@ -65,6 +88,9 @@ mod tests {
         let cli = Cli {
             file: Some(path.clone()),
             pretty: false,
+            log_dir: None,
+            log_errors: false,
+            quiet: false,
         };
         assert_eq!(cli.read_input().unwrap(), b"Subject: t\r\n\r\nbody");
         std::fs::remove_file(&path).unwrap();
@@ -75,6 +101,9 @@ mod tests {
         let cli = Cli {
             file: Some(PathBuf::from("/definitely/not/here.eml")),
             pretty: false,
+            log_dir: None,
+            log_errors: false,
+            quiet: false,
         };
         match cli.read_input() {
             Err(AppError::InputOpen { path, .. }) => assert_eq!(path, "/definitely/not/here.eml"),

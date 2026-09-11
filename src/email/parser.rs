@@ -5,7 +5,7 @@ use super::{
     MimeType, ParsedEmail, RawMessage, Recipient, Sender, Subject,
 };
 
-/// Parses raw message bytes into metadata and attachments.
+/// Parses raw message bytes into metadata, body text, and attachments.
 ///
 /// MIME decoding (multipart, transfer encodings, RFC 2047/2231 encoded
 /// headers and charsets) is delegated to the `mail-parser` crate.
@@ -26,6 +26,8 @@ pub fn parse(raw: RawMessage<'_>) -> Result<ParsedEmail, EmailError> {
         date: message.date().and_then(normalize_date),
     };
 
+    let body = extract_body(&message);
+
     let attachments = message
         .attachments()
         .map(|part| {
@@ -37,7 +39,19 @@ pub fn parse(raw: RawMessage<'_>) -> Result<ParsedEmail, EmailError> {
         })
         .collect();
 
-    Ok(ParsedEmail::new(metadata, attachments))
+    Ok(ParsedEmail::new(metadata, body, attachments))
+}
+
+/// Returns the message body as plain text.
+///
+/// Prefers `text/plain` parts; for HTML-only messages the body is converted
+/// to plain text using the built-in converter.
+fn extract_body(message: &mail_parser::Message<'_>) -> Option<String> {
+    if let Some(text) = message.body_text(0) {
+        return Some(text.into_owned());
+    }
+    let html = message.body_html(0)?;
+    Some(mail_parser::decoders::html::html_to_text(&html))
 }
 
 fn normalize_message_id(id: &str) -> String {
@@ -197,6 +211,51 @@ mod tests {
         assert!(parsed.metadata.sender.is_none());
         assert!(parsed.metadata.to.is_none());
         assert!(parsed.metadata.date.is_none());
+    }
+
+    #[test]
+    fn extracts_plain_text_body() {
+        let parsed = parse_str(
+            "Content-Type: text/plain; charset=utf-8\r\n\r\nHello, world!\r\n",
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.body,
+            Some("Hello, world!\r\n".to_string())
+        );
+    }
+
+    #[test]
+    fn converts_html_only_body_to_text() {
+        let parsed = parse_str(
+            "Content-Type: text/html\r\n\r\n<html><body><p>Привет</p></body></html>\r\n",
+        )
+        .unwrap();
+        let body = parsed.body.unwrap();
+        assert!(body.contains("Привет"), "body: {body}");
+    }
+
+    #[test]
+    fn multipart_keeps_text_body_and_attachments_separate() {
+        let raw = "\
+MIME-Version: 1.0\r\n\
+Content-Type: multipart/mixed; boundary=\"B\"\r\n\
+\r\n\
+--B\r\n\
+Content-Type: text/plain\r\n\
+\r\n\
+body text\r\n\
+--B\r\n\
+Content-Type: application/octet-stream; name=\"a.docx\"\r\n\
+Content-Disposition: attachment; filename=\"a.docx\"\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+AAECAwQF\r\n\
+--B--\r\n";
+        let parsed = parse_str(raw).unwrap();
+        assert_eq!(parsed.body, Some("body text".to_string()));
+        assert_eq!(parsed.attachments().len(), 1);
+        assert_eq!(parsed.attachments()[0].filename().unwrap().as_str(), "a.docx");
     }
 
     #[test]

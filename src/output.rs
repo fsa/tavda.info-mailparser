@@ -68,7 +68,11 @@ mod tests {
                 content_type: None,
             },
         ];
-        Email::new(metadata, documents)
+        Email::new(
+            metadata,
+            Some("Текст письма".to_string()),
+            documents,
+        )
     }
 
     #[test]
@@ -77,6 +81,7 @@ mod tests {
         assert!(json.contains("\"message_id\": \"<x@y>\""));
         assert!(json.contains("\"subject\": \"Тема письма\""));
         assert!(json.contains("\"date\": \"2026-08-21T16:30:00Z\""));
+        assert!(json.contains("\"body\": \"Текст письма\""));
         assert!(json.contains("\"status\": \"ok\""));
         assert!(json.contains("\"filename\": null"));
         // binary data must never leak into the output

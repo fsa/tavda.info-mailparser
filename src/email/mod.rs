@@ -24,6 +24,12 @@ impl<'a> RawMessage<'a> {
 #[serde(transparent)]
 pub struct MessageId(pub String);
 
+impl MessageId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// Decoded (RFC 2047) subject line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
@@ -140,20 +146,26 @@ pub struct EmailMetadata {
     pub date: Option<IsoDateTime>,
 }
 
-/// Intermediate parse result: metadata plus raw attachments.
+/// Intermediate parse result: metadata, body text, and raw attachments.
 ///
 /// Document extraction happens after parsing so that the two stages stay
 /// independent (see `document::process_attachments`).
 #[derive(Debug)]
 pub struct ParsedEmail {
     metadata: EmailMetadata,
+    body: Option<String>,
     attachments: Vec<Attachment>,
 }
 
 impl ParsedEmail {
-    pub fn new(metadata: EmailMetadata, attachments: Vec<Attachment>) -> Self {
+    pub fn new(
+        metadata: EmailMetadata,
+        body: Option<String>,
+        attachments: Vec<Attachment>,
+    ) -> Self {
         Self {
             metadata,
+            body,
             attachments,
         }
     }
@@ -162,8 +174,12 @@ impl ParsedEmail {
         &self.attachments
     }
 
+    pub fn message_id(&self) -> Option<&MessageId> {
+        self.metadata.message_id.as_ref()
+    }
+
     pub fn into_email(self, documents: Vec<crate::document::Document>) -> Email {
-        Email::new(self.metadata, documents)
+        Email::new(self.metadata, self.body, documents)
     }
 }
 
@@ -175,17 +191,25 @@ pub struct Email {
     sender: Option<Sender>,
     to: Option<Recipient>,
     date: Option<IsoDateTime>,
+    /// Decoded body text of the message (plain text; HTML bodies are
+    /// converted to text). `null` when the message carries no text body.
+    body: Option<String>,
     documents: Vec<crate::document::Document>,
 }
 
 impl Email {
-    pub fn new(metadata: EmailMetadata, documents: Vec<crate::document::Document>) -> Self {
+    pub fn new(
+        metadata: EmailMetadata,
+        body: Option<String>,
+        documents: Vec<crate::document::Document>,
+    ) -> Self {
         Self {
             message_id: metadata.message_id,
             subject: metadata.subject,
             sender: metadata.sender,
             to: metadata.to,
             date: metadata.date,
+            body,
             documents,
         }
     }
