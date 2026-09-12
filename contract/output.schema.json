@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tavda-mail-parser:output-schema",
+  "title": "tavda-mail-parser output",
+  "description": "The single JSON document that tavda-mail-parser writes to stdout for one message. Use this schema to validate or generate consumers of the output.",
+  "type": "object",
+  "required": ["message_id", "subject", "sender", "to", "date", "body", "documents"],
+  "properties": {
+    "message_id": {
+      "description": "RFC 5322 Message-ID, wrapped in angle brackets.",
+      "type": ["string", "null"]
+    },
+    "subject": {
+      "description": "Decoded (RFC 2047) subject line.",
+      "type": ["string", "null"]
+    },
+    "sender": {
+      "description": "Sender address from the From header.",
+      "type": ["string", "null"]
+    },
+    "to": {
+      "description": "Primary recipient from the To header (first entry).",
+      "type": ["string", "null"]
+    },
+    "date": {
+      "description": "Message date normalized to UTC ISO 8601, e.g. 2026-09-12T10:00:00Z.",
+      "type": ["string", "null"],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "body": {
+      "description": "Decoded plain-text body; null when the message carries no text body.",
+      "type": ["string", "null"]
+    },
+    "documents": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/document" }
+    }
+  },
+  "$defs": {
+    "document": {
+      "description": "Processing result for one attachment. The `status` tag selects the variant. `filename` and `content_type` mirror the declared headers (null when absent). `detected_content_type` is the canonical MIME type of the format actually used for decoding; it is present only when a decoder was picked (status `ok`, `error`) or the format was recognized (status `missing_decoder`), and never for `unsupported`. The `status` mapping is: `ok` = text extracted; `unsupported` = the format detection found nothing usable; `missing_decoder` = the format is recognized and supported but this host lacks the required decoder tool; `error` = extraction was attempted but failed.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["status", "paragraphs"],
+          "properties": {
+            "status": { "const": "ok" },
+            "filename": { "type": ["string", "null"] },
+            "content_type": { "type": ["string", "null"] },
+            "detected_content_type": { "type": ["string", "null"] },
+            "paragraphs": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "const": "unsupported" },
+            "filename": { "type": ["string", "null"] },
+            "content_type": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["status", "decoder"],
+          "properties": {
+            "status": { "const": "missing_decoder" },
+            "filename": { "type": ["string", "null"] },
+            "content_type": { "type": ["string", "null"] },
+            "detected_content_type": { "type": ["string", "null"] },
+            "decoder": {
+              "description": "Name of the missing decoder tool, e.g. `pdftotext` (Debian package `poppler-utils`).",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["status", "error"],
+          "properties": {
+            "status": { "const": "error" },
+            "filename": { "type": ["string", "null"] },
+            "content_type": { "type": ["string", "null"] },
+            "detected_content_type": { "type": ["string", "null"] },
+            "error": {
+              "type": "object",
+              "required": ["code", "message"],
+              "properties": {
+                "code": {
+                  "enum": [
+                    "text_extraction_failed",
+                    "corrupt_document",
+                    "encrypted_document",
+                    "missing_decoder"
+                  ]
+                },
+                "message": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

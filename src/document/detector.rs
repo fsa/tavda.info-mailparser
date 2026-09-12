@@ -7,6 +7,9 @@ pub enum Format {
     Docx,
     /// Legacy binary Word 97-2003 (`.doc`), an OLE2/CFB compound file.
     LegacyDoc,
+    /// Portable Document Format (`.pdf`). There is no in-process decoder: text
+    /// is extracted by the external `pdftotext` tool (poppler-utils).
+    Pdf,
 }
 
 impl Format {
@@ -15,15 +18,18 @@ impl Format {
         match self {
             Format::Docx => DOCX_MIME,
             Format::LegacyDoc => DOC_MIME,
+            Format::Pdf => PDF_MIME,
         }
     }
 }
 
 const CFB_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
 const ZIP_MAGIC: [u8; 4] = [0x50, 0x4B, 0x03, 0x04];
+const PDF_MAGIC: [u8; 5] = *b"%PDF-";
 
 const DOCX_MIME: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const DOC_MIME: &str = "application/msword";
+const PDF_MIME: &str = "application/pdf";
 
 /// Decides which extractor should handle the attachment.
 ///
@@ -41,6 +47,7 @@ fn by_extension(attachment: &Attachment) -> Option<Format> {
     match ext.as_str() {
         "docx" | "docm" | "dotx" | "dotm" => Some(Format::Docx),
         "doc" | "dot" => Some(Format::LegacyDoc),
+        "pdf" => Some(Format::Pdf),
         _ => None,
     }
 }
@@ -49,6 +56,7 @@ fn by_mime_type(attachment: &Attachment) -> Option<Format> {
     match attachment.content_type()?.as_str() {
         DOCX_MIME => Some(Format::Docx),
         DOC_MIME => Some(Format::LegacyDoc),
+        PDF_MIME => Some(Format::Pdf),
         _ => None,
     }
 }
@@ -59,6 +67,8 @@ fn by_magic(attachment: &Attachment) -> Option<Format> {
         Some(Format::LegacyDoc)
     } else if bytes.starts_with(&ZIP_MAGIC) {
         Some(Format::Docx)
+    } else if bytes.starts_with(&PDF_MAGIC) {
+        Some(Format::Pdf)
     } else {
         None
     }
@@ -79,6 +89,7 @@ mod tests {
 
     const ZIP_BYTES: &[u8] = b"PK\x03\x04 followed by data";
     const CFB_BYTES: &[u8] = &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0x00];
+    const PDF_BYTES: &[u8] = b"%PDF-1.7";
 
     #[test]
     fn detects_office_extensions() {
@@ -86,12 +97,14 @@ mod tests {
         assert_eq!(detect(&attachment(Some("b.DOC"), b"")), Some(Format::LegacyDoc));
         assert_eq!(detect(&attachment(Some("c.docm"), b"")), Some(Format::Docx));
         assert_eq!(detect(&attachment(Some("d.dot"), b"")), Some(Format::LegacyDoc));
+        assert_eq!(detect(&attachment(Some("e.pdf"), b"")), Some(Format::Pdf));
     }
 
     #[test]
     fn unknown_extension_falls_back_to_content_sniffing() {
         assert_eq!(detect(&attachment(Some("f.xyz"), ZIP_BYTES)), Some(Format::Docx));
         assert_eq!(detect(&attachment(Some("f.xyz"), CFB_BYTES)), Some(Format::LegacyDoc));
+        assert_eq!(detect(&attachment(Some("f.xyz"), PDF_BYTES)), Some(Format::Pdf));
         assert_eq!(detect(&attachment(Some("f.xyz"), b"plain")), None);
     }
 
@@ -99,6 +112,7 @@ mod tests {
     fn detects_format_by_magic_without_name() {
         assert_eq!(detect(&attachment(None, ZIP_BYTES)), Some(Format::Docx));
         assert_eq!(detect(&attachment(None, CFB_BYTES)), Some(Format::LegacyDoc));
+        assert_eq!(detect(&attachment(None, PDF_BYTES)), Some(Format::Pdf));
         assert_eq!(detect(&attachment(None, b"\x00\x01")), None);
     }
 

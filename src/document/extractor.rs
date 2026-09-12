@@ -14,10 +14,12 @@ pub trait DocumentExtractor: Sync {
 
 static DOCX_EXTRACTOR: super::docx::DocxExtractor = super::docx::DocxExtractor;
 static LEGACY_DOC_EXTRACTOR: super::doc::LegacyDocExtractor = super::doc::LegacyDocExtractor;
+static PDF_EXTRACTOR: super::pdf::PdfExtractor = super::pdf::PdfExtractor;
 
 pub fn extractor_for(format: Format) -> Option<&'static dyn DocumentExtractor> {
     match format {
         Format::Docx => Some(&DOCX_EXTRACTOR),
         Format::LegacyDoc => Some(&LEGACY_DOC_EXTRACTOR),
+        Format::Pdf => Some(&PDF_EXTRACTOR),
     }
 }

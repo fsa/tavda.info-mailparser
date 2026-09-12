@@ -12,6 +12,8 @@ pub enum DocumentError {
     Corrupt(String),
     #[error("text extraction failed: {0}")]
     Extraction(String),
+    #[error("no decoder is installed for this format: `{0}`")]
+    MissingDecoder(String),
 }
 
 /// Machine-readable error code used in the JSON output.
@@ -21,6 +23,7 @@ pub enum ErrorCode {
     TextExtractionFailed,
     CorruptDocument,
     EncryptedDocument,
+    MissingDecoder,
 }
 
 /// Serialized form of a document processing error.
@@ -36,6 +39,7 @@ impl From<&DocumentError> for DocumentErrorInfo {
             DocumentError::Encrypted => (ErrorCode::EncryptedDocument, err.to_string()),
             DocumentError::Corrupt(_) => (ErrorCode::CorruptDocument, err.to_string()),
             DocumentError::Extraction(_) => (ErrorCode::TextExtractionFailed, err.to_string()),
+            DocumentError::MissingDecoder(_) => (ErrorCode::MissingDecoder, err.to_string()),
         };
         Self {
             code,
@@ -57,6 +61,7 @@ mod tests {
                 DocumentError::Extraction("y".into()),
                 ErrorCode::TextExtractionFailed,
             ),
+            (DocumentError::MissingDecoder("pdftotext".into()), ErrorCode::MissingDecoder),
         ];
         for (err, expected) in cases {
             let info = DocumentErrorInfo::from(&err);

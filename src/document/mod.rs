@@ -3,11 +3,12 @@ pub mod doc;
 pub mod docx;
 pub mod error;
 pub mod extractor;
+pub mod pdf;
 
 use serde::Serialize;
 
 use super::email::Attachment;
-use error::DocumentErrorInfo;
+use error::{DocumentError, DocumentErrorInfo};
 
 /// A single text paragraph of an extracted document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -37,14 +38,16 @@ impl ExtractedDocument {
 
 /// Processing result for one attachment.
 ///
-/// The `status` tag mirrors the three possible outcomes: successful text
-/// extraction, unsupported format, or a per-document error. `content_type`
-/// carries the MIME type declared in the message headers (`null` when the
-/// part had none); `detected_content_type` is the canonical MIME type of the
-/// format actually used for decoding, so it diverges from `content_type`
-/// whenever detection relied on extension or content sniffing. It is present
-/// only when a decoder was picked (`ok`/`error`); nothing was decoded for
-/// `unsupported`.
+/// The `status` tag mirrors the possible outcomes: successful text extraction
+/// (`ok`), an unsupported format (`unsupported`), a format that is recognized
+/// but has no decoder installed on this host (`missing_decoder`), or a
+/// per-document error (`error`). `content_type` carries the MIME type declared
+/// in the message headers (`null` when the part had none);
+/// `detected_content_type` is the canonical MIME type of the format actually
+/// used for decoding, so it diverges from `content_type` whenever detection
+/// relied on extension or content sniffing. It is present only when a decoder
+/// was picked (`ok`/`error`); nothing was decoded for `unsupported`, and the
+/// format was only recognized for `missing_decoder`.
 #[derive(Debug, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum Document {
@@ -57,6 +60,14 @@ pub enum Document {
     Unsupported {
         filename: Option<String>,
         content_type: Option<String>,
+    },
+    MissingDecoder {
+        filename: Option<String>,
+        content_type: Option<String>,
+        detected_content_type: Option<String>,
+        /// Name of the missing decoder. The format is recognized and
+        /// supported, but this host lacks the tool that implements it.
+        decoder: String,
     },
     Error {
         filename: Option<String>,
@@ -99,6 +110,12 @@ fn process_attachment(attachment: &Attachment) -> Document {
             content_type,
             detected_content_type: Some(detected_content_type),
             paragraphs: document.into_paragraphs(),
+        },
+        Err(DocumentError::MissingDecoder(decoder)) => Document::MissingDecoder {
+            filename,
+            content_type,
+            detected_content_type: Some(detected_content_type),
+            decoder,
         },
         Err(err) => {
             warn(&filename, &err.to_string());
@@ -249,6 +266,26 @@ mod tests {
         assert_eq!(
             ok["detected_content_type"],
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        );
+    }
+
+    #[test]
+    fn missing_decoder_json_shape_is_stable() {
+        let document = Document::MissingDecoder {
+            filename: Some("forecast.pdf".into()),
+            content_type: Some("application/pdf".into()),
+            detected_content_type: Some("application/pdf".into()),
+            decoder: "pdftotext".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&document).unwrap(),
+            json!({
+                "status": "missing_decoder",
+                "filename": "forecast.pdf",
+                "content_type": "application/pdf",
+                "detected_content_type": "application/pdf",
+                "decoder": "pdftotext",
+            })
         );
     }
 }
