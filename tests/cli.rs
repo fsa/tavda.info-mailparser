@@ -258,14 +258,19 @@ fn log_dir_names_files_after_message_id_without_log_errors() {
         .unwrap();
     assert!(output.status.success());
 
+    // the result always goes to stdout ...
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["message_id"], "<simple-001@example.com>");
+
+    // ... and an identical archive copy lands in the directory
     let files = dir_files(&dir);
-    assert_eq!(files.len(), 1, "no --log-errors: only the .json result file exists");
+    assert_eq!(files.len(), 1, "no --log-errors: only the .json archive exists");
     let name = files[0].file_name().unwrap().to_str().unwrap();
     assert!(name.starts_with("simple-001_example.com-"), "name: {name}");
     assert!(name.ends_with(".json"));
-    let json: serde_json::Value =
+    let archived: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&files[0]).unwrap()).unwrap();
-    assert_eq!(json["message_id"], "<simple-001@example.com>");
+    assert_eq!(archived, stdout);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -274,25 +279,33 @@ fn log_errors_tees_diagnostics_to_stderr_and_log_file() {
     let dir = temp_log_dir("diagnostics");
     let output = Command::new(BINARY)
         .args(["--log-dir", dir.to_str().unwrap(), "--log-errors"])
-        .arg(data_file("multi_attachments.eml"))
+        .arg(data_file("broken_doc.eml"))
         .output()
         .unwrap();
     assert!(output.status.success());
 
+    // the result reaches stdout as usual
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["message_id"], "<broken-004@example.com>");
+
     // diagnostics are still on the terminal ...
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("unsupported format"), "stderr: {stderr}");
+    assert!(stderr.contains("corrupt"), "stderr: {stderr}");
 
     // ... and mirrored into the .log file
     let files = dir_files(&dir);
     assert_eq!(files.len(), 2);
     let result = find_ext(&files, "json");
     let log = find_ext(&files, "log");
-    let prefix = "multi-003_example.com-";
+    let prefix = "broken-004_example.com-";
     assert!(result.file_name().unwrap().to_str().unwrap().starts_with(prefix));
     assert!(log.file_name().unwrap().to_str().unwrap().starts_with(prefix));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&std::fs::read(result).unwrap()).unwrap(),
+        stdout
+    );
     let text = std::fs::read_to_string(log).unwrap();
-    assert!(text.contains("unsupported format"), "log: {text}");
+    assert!(text.contains("corrupt"), "log: {text}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -301,10 +314,14 @@ fn log_errors_with_quiet_keeps_diagnostics_only_in_log_file() {
     let dir = temp_log_dir("quiet-log");
     let output = Command::new(BINARY)
         .args(["--log-dir", dir.to_str().unwrap(), "--log-errors", "--quiet"])
-        .arg(data_file("multi_attachments.eml"))
+        .arg(data_file("broken_doc.eml"))
         .output()
         .unwrap();
     assert!(output.status.success());
+
+    // the result still reaches stdout
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["message_id"], "<broken-004@example.com>");
 
     // stderr is suppressed ...
     assert!(output.stderr.is_empty(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
@@ -314,7 +331,7 @@ fn log_errors_with_quiet_keeps_diagnostics_only_in_log_file() {
     assert_eq!(files.len(), 2);
     let log = find_ext(&files, "log");
     let text = std::fs::read_to_string(log).unwrap();
-    assert!(text.contains("unsupported format"), "log: {text}");
+    assert!(text.contains("corrupt"), "log: {text}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -323,13 +340,17 @@ fn log_dir_without_log_errors_leaves_diagnostics_on_stderr_and_no_log_file() {
     let dir = temp_log_dir("no-log-errors");
     let output = Command::new(BINARY)
         .args(["--log-dir", dir.to_str().unwrap()])
-        .arg(data_file("multi_attachments.eml"))
+        .arg(data_file("broken_doc.eml"))
         .output()
         .unwrap();
     assert!(output.status.success());
 
+    // the result reaches stdout as usual
+    let stdout: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(stdout["message_id"], "<broken-004@example.com>");
+
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("unsupported format"), "stderr: {stderr}");
+    assert!(stderr.contains("corrupt"), "stderr: {stderr}");
 
     let files = dir_files(&dir);
     assert_eq!(files.len(), 1, "no --log-errors: no .log file is created");
@@ -351,17 +372,18 @@ fn log_dir_records_failed_parse_in_error_log_with_fallback_name() {
     let output = run_with_stdin(b"", &["--log-dir", dir.to_str().unwrap(), "--log-errors"]);
     assert!(!output.status.success());
 
+    // on a fatal parse error there is no result: stdout stays empty and no
+    // .json archive is created, only the diagnostics are logged
+    assert!(output.stdout.is_empty(), "no JSON may be emitted");
+
     let files = dir_files(&dir);
-    assert_eq!(files.len(), 2);
-    let result = find_ext(&files, "json");
-    let log = find_ext(&files, "log");
+    assert_eq!(files.len(), 1, "only the .log file is created");
+    let log = &files[0];
     // no Message-ID available: fallback name is a YYYYMMDD-HHMMSS timestamp
-    for path in [result, log] {
-        let name = path.file_name().unwrap().to_str().unwrap();
-        assert!(name.len() > 20, "name: {name}");
-        assert!(name.as_bytes()[..8].iter().all(|b| b.is_ascii_digit()), "name: {name}");
-    }
-    assert_eq!(std::fs::metadata(result).unwrap().len(), 0, "no JSON was produced");
+    let name = log.file_name().unwrap().to_str().unwrap();
+    assert!(name.len() > 20, "name: {name}");
+    assert!(name.as_bytes()[..8].iter().all(|b| b.is_ascii_digit()), "name: {name}");
+    assert!(name.ends_with(".log"));
     let text = std::fs::read_to_string(log).unwrap();
     assert!(text.contains("not a parseable"), "log: {text}");
     // the same error is mirrored to stderr

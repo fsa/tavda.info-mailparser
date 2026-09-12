@@ -75,8 +75,10 @@ fn process_attachment(attachment: &Attachment) -> Document {
     let filename = attachment.filename().map(|name| name.as_str().to_string());
     let content_type = attachment.content_type().map(|ct| ct.as_str().to_string());
 
+    // An unsupported format is a graceful, expected outcome: it is fully
+    // reflected in the `documents[]` report (status "unsupported"), so no
+    // stderr diagnostics are emitted for it.
     let Some(format) = detector::detect(attachment) else {
-        warn(&filename, "unsupported format");
         return Document::Unsupported {
             filename,
             content_type,
@@ -84,7 +86,6 @@ fn process_attachment(attachment: &Attachment) -> Document {
     };
 
     let Some(extractor) = extractor::extractor_for(format) else {
-        warn(&filename, "no extractor registered");
         return Document::Unsupported {
             filename,
             content_type,

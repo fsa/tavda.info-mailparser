@@ -21,10 +21,12 @@ pub struct Cli {
     #[arg(long)]
     pub pretty: bool,
 
-    /// Save the JSON result to `DIR/<base>-<pid>.json`.
+    /// Archive the result to `DIR/<base>-<pid>.json`.
     ///
-    /// The base name is derived from the message Message-ID (characters
-    /// outside `[A-Za-z0-9._-]` replaced with `_`, angle brackets stripped);
+    /// The JSON result is always written to stdout; with this option an
+    /// identical copy is archived for later review, and the base name is
+    /// derived from the message Message-ID (characters outside
+    /// `[A-Za-z0-9._-]` replaced with `_`, angle brackets stripped);
     /// messages without a Message-ID use a `YYYYMMDD-HHMMSS` timestamp.
     #[arg(long, value_name = "DIR")]
     pub log_dir: Option<PathBuf>,

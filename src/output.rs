@@ -1,4 +1,4 @@
-use std::io::{self, Write};
+use std::io;
 
 use crate::email::Email;
 
@@ -10,21 +10,17 @@ pub enum OutputError {
     Io(#[from] io::Error),
 }
 
-/// Writes the single JSON document to stdout.
+/// Renders the single JSON document for a message.
 ///
-/// Compact by default; `pretty` switches to 2-space indentation.
-/// Diagnostics never go here: stdout must stay machine-parseable.
-pub fn write_json(email: &Email, pretty: bool) -> Result<(), OutputError> {
-    let json = if pretty {
-        to_pretty_json(email)?
+/// Compact by default; `pretty` switches to 2-space indentation. The caller
+/// decides where the bytes go — the result is always delivered on stdout and
+/// may additionally be archived by `--log-dir`.
+pub fn render_json(email: &Email, pretty: bool) -> Result<String, OutputError> {
+    if pretty {
+        to_pretty_json(email)
     } else {
-        to_compact_json(email)?
-    };
-    let mut lock = io::stdout().lock();
-    lock.write_all(json.as_bytes())?;
-    lock.write_all(b"\n")?;
-    lock.flush()?;
-    Ok(())
+        to_compact_json(email)
+    }
 }
 
 pub(crate) fn to_pretty_json(email: &Email) -> Result<String, OutputError> {

@@ -18,7 +18,6 @@ use cli::Cli;
 use email::RawMessage;
 use error::AppError;
 
-const STDOUT_FD: RawFd = 1;
 const STDERR_FD: RawFd = 2;
 
 /// Message-IDs may carry arbitrary characters; keep a generous cap so the
@@ -27,7 +26,7 @@ const MAX_BASE_LEN: usize = 100;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    match cli.log_dir.as_deref() {
+    match &cli.log_dir {
         Some(dir) => run_with_logging(&cli, dir),
         None => run_plain(&cli),
     }
@@ -52,13 +51,31 @@ fn run_plain(cli: &Cli) -> ExitCode {
 fn run(cli: &Cli) -> Result<(), AppError> {
     let raw = cli.read_input()?;
     let parsed = email::parser::parse(RawMessage::new(&raw))?;
-    finish(parsed, cli.pretty)
+    finish(parsed, cli.pretty, None)
 }
 
-fn finish(parsed: email::ParsedEmail, pretty: bool) -> Result<(), AppError> {
+/// Builds the JSON result, delivers it on stdout, and optionally archives a
+/// copy to `DIR/<base>-<pid>.json`. stdout is written first so the consuming
+/// application always gets the result even if the archive copy fails.
+fn finish(
+    parsed: email::ParsedEmail,
+    pretty: bool,
+    archive: Option<(&Path, &str)>,
+) -> Result<(), AppError> {
     let documents = document::process_attachments(parsed.attachments());
     let message = parsed.into_email(documents);
-    output::write_json(&message, pretty)?;
+    let json = output::render_json(&message, pretty)?;
+
+    let mut stdout = io::stdout().lock();
+    stdout.write_all(json.as_bytes())?;
+    stdout.write_all(b"\n")?;
+    stdout.flush()?;
+    drop(stdout);
+
+    if let Some((dir, base)) = archive {
+        let json_path = dir.join(format!("{base}-{}.json", std::process::id()));
+        fs::write(&json_path, json.as_bytes())?;
+    }
     Ok(())
 }
 
@@ -71,7 +88,8 @@ fn report_error(err: &AppError) {
     }
 }
 
-/// `--log-dir` mode: the JSON result goes to `DIR/<base>-<pid>.json`.
+/// `--log-dir` mode: the JSON result is always delivered on stdout, and a
+/// copy is archived to `DIR/<base>-<pid>.json`.
 ///
 /// Diagnostics keep flowing to stderr as usual unless `--quiet` suppresses
 /// them. With `--log-errors` they are additionally mirrored into
@@ -96,8 +114,8 @@ fn run_with_logging(cli: &Cli, dir: &Path) -> ExitCode {
         .filter(|base| !base.is_empty())
         .unwrap_or_else(fallback_base);
 
-    if let Err(err) = redirect_stdout(dir, &base) {
-        eprintln!("error: cannot set up result file in `{}`: {err}", dir.display());
+    if let Err(err) = fs::create_dir_all(dir) {
+        eprintln!("error: cannot set up log directory `{}`: {err}", dir.display());
         return ExitCode::FAILURE;
     }
 
@@ -120,7 +138,7 @@ fn run_with_logging(cli: &Cli, dir: &Path) -> ExitCode {
     };
 
     let exit = match (parsed, pending) {
-        (Some(message), _) => match finish(message, cli.pretty) {
+        (Some(message), _) => match finish(message, cli.pretty, Some((dir, &base))) {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => {
                 report_error(&err);
@@ -228,14 +246,6 @@ fn finalize_capture(capture: Capture) -> Vec<u8> {
         },
         None => Vec::new(),
     }
-}
-
-/// Creates `DIR/<base>-<pid>.json` and points fd 1 (stdout) at it.
-fn redirect_stdout(dir: &Path, base: &str) -> io::Result<()> {
-    fs::create_dir_all(dir)?;
-    let result_path = dir.join(format!("{base}-{}.json", std::process::id()));
-    let result = File::create(&result_path)?;
-    set_fd(STDOUT_FD, &result)
 }
 
 /// Points fd 2 (stderr) at `/dev/null` so diagnostics are discarded.
